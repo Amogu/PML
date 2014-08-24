@@ -1,0 +1,99 @@
+---
+title: "PML Assignment: Predicting the Quality of Weight Lifting Exercise"
+author: "Amogu Ukairo"
+date: "August 18, 2014"
+output: html_document
+---
+
+
+
+The goal of this model is to predict the quality (meaning how well) a group of volunteers executed a weight lifting exercise. The data used to build and test the model are two: a [training dataset](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv) and a [test dataset](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv).
+
+_Approach to ensure cross validation_:
+
+1. Use the training set
+
+2. Split it into training/test sets 
+
+3. Build a model on the training set
+
+4. Evaluate on the test set
+
+5. If step gives high accuracy then use and predict on the testing dataset, otherwise tinker with the model.
+
+Having loaded both datasets, we remove columns with NA values, colums with >90 correlation, and rows with _new window_ = 'no' (to match what we have in the testing dataset). 
+
+
+
+```{r, echo = F, message = F, warning = F, tidy = F}
+library(caret)
+library(randomForest)
+#First download and load datasets
+trainingurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+download.file(trainingurl, destfile = "training.csv", method = "curl")
+download.file(testingurl, destfile = "testing.csv", method = "curl")
+dateDownloaded <- date()
+testing <- read.csv("testing.csv", na.strings = c("NA","")) #set blanks and 'NA' to be 'NA'
+training <- read.csv("training.csv", na.strings = c("NA",""))
+
+#Clean up the data to make a first pass at feature selection
+trainDat <- training[,!sapply(training,function(x) any(is.na(x)))] #remove columns with missing values
+trainDat <-trainDat[trainDat$new_window == "no",]
+testDat <- testing[,!sapply(testing,function(x) any(is.na(x)))]
+
+trainDat <- subset(trainDat, select = -c(1:7)) #remove colums that won't help our predictive model
+
+descrCor <- cor(trainDat[,-53])
+highlyCorDescr <- findCorrelation(descrCor, cutoff = 0.90)
+trainDat <- trainDat[, -highlyCorDescr] #remove colums with >0.9 correlation
+
+```
+
+Next we split the training dataset (step 3 above) and then predict using all `r dim(trainDat)[2] - 1` features to predict.
+
+```{r, echo = F, message = F, warning = F, tidy = F}
+inTrain <- createDataPartition(y=trainDat$classe, p=0.75, list=FALSE)
+train <- trainDat[inTrain,]
+test <- trainDat[-inTrain,]
+cv_opts = trainControl(method="cv", number=10)
+modelFit <- train(train$classe ~ .,method="rf", trControl=cv_opts,data=train)
+conf <- confusionMatrix(test$classe,predict(modelFit,test))
+imp <- varImp(modelFit)
+```
+
+Although we get a high accuracy of `r confusionMatrix(test$classe,predict(modelFit,test))$overall[1]`, we examine the relative importance of the features we used and rebuild our model using only the top 20 contributors from the `varImp` output `varImp(modelFit)`:
+
+The choice of model seems to agree with views of the team that provided the original data (see http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf)
+
+
+```{r, echo=FALSE}
+trainDat <- subset(trainDat, select = c(2,35,33,1,32,34,8,9,6,22,31,29,40,25,42,7,30,45,12,3,46))
+inTrain <- createDataPartition(y=trainDat$classe, p=0.75, list=FALSE)
+train <- trainDat[inTrain,]
+test <- trainDat[-inTrain,]
+cv_opts = trainControl(method="cv", number=10)
+modelFit1 <- train(train$classe ~ .,method="rf", trControl=cv_opts,data=train)
+# pred<- predict(modelFit1,testDat)
+# oob <- modelFit1$finalModel
+```
+
+Despite the use of only twenty features in the model, our accuracy is still high at `r confusionMatrix(test$classe,predict(modelFit1,test))$overall[1]`
+
+Our prediction of the twenty cases from the testing data is also accurate and is given as 
+
+```{r} 
+
+predict(modelFit1,testDat)
+
+```
+
+And our out of sample error rate is given by the OOB below 
+
+```{r}
+modelFit1$finalModel
+```
+
+
+
